@@ -1,5 +1,7 @@
 # אלופי הכפל · Multiply Club
 
+**[Play the game](https://tronch0.github.io/mul-table-game/)** · [Source](https://github.com/tronch0/mul-table-game)
+
 A responsive, installable multiplication game for third grade and up. Hebrew opens by default; an English switch changes both the language and reading direction.
 
 ## Play

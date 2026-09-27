@@ -39,6 +39,7 @@ export default function App() {
   const active = game && !game.finished
   const arrow = language === 'he' ? <ArrowLeft size={20}/> : <ArrowRight size={20}/>
 
+  useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }) }, [view])
   useEffect(() => { document.documentElement.lang = language; document.documentElement.dir = language === 'he' ? 'rtl' : 'ltr'; document.title = `${t.brand} · ${language === 'he' ? 'משחק לוח הכפל' : 'A multiplication adventure'}`; storage.set('multiply.language', language) }, [language, t.brand])
   useEffect(() => { const on = () => setOnline(true); const off = () => setOnline(false); window.addEventListener('online', on); window.addEventListener('offline', off); return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) } }, [])
   useEffect(() => { const onInstall = (e: Event) => { e.preventDefault(); setInstallEvent(e as InstallEvent) }; const done = () => { setInstalled(true); setInstallEvent(null) }; window.addEventListener('beforeinstallprompt', onInstall); window.addEventListener('appinstalled', done); return () => { window.removeEventListener('beforeinstallprompt', onInstall); window.removeEventListener('appinstalled', done) } }, [])
