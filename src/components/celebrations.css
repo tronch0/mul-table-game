@@ -1,0 +1,87 @@
+/* Celebrations float above the game without stealing focus, touch, or time. */
+.row-celebration {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 45;
+  overflow: hidden;
+  contain: layout style;
+}
+.celebration-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.celebration-banner {
+  position: absolute;
+  top: max(18px, env(safe-area-inset-top));
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: max-content;
+  max-width: calc(100% - 28px);
+  padding: 16px 20px;
+  border: 1px solid color-mix(in srgb, var(--party-color), white 60%);
+  border-radius: 22px;
+  color: #24443f;
+  background: #fffffff5;
+  box-shadow: 0 10px 36px #173d4230, 0 0 0 5px color-mix(in srgb, var(--party-color) 12%, transparent);
+  transform: translateX(-50%);
+  animation: celebration-arrive var(--party-duration) both;
+}
+.celebration-emblem {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 55px;
+  height: 55px;
+  flex-shrink: 0;
+  color: var(--party-color);
+  background: color-mix(in srgb, var(--party-color), white 88%);
+  border-radius: 17px;
+  animation: celebration-emblem .75s .08s both;
+}
+.emblem-sparkle { position: absolute; top: -5px; inset-inline-end: -5px; fill: #fff4ce; }
+.celebration-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.celebration-copy > span { color: #607d70; font-size: 13px; font-weight: 500; }
+.celebration-copy strong { font-size: 21px; font-weight: 700; line-height: 1.3; letter-spacing: -.5px; }
+.celebration-count { display: flex; flex-direction: column; align-items: center; font-size: 28px; font-weight: 800; color: var(--party-color); line-height: 1; padding-inline-start: 8px; }
+.celebration-count small { font-size: 12px; color: #7b9184; margin-top: 5px; font-weight: 500; direction: ltr; }
+.celebration-finale .celebration-banner { background: #fff7da; border-color: #ebc356; }
+.celebration-finale .celebration-emblem { background: #ffe79c; color: #99671c; }
+.celebration-finale .celebration-copy strong { color: #73520c; }
+.progress-dot.filled.row-complete { background: var(--row-color); border-color: var(--row-color); color: white; }
+.progress-dot.filled.row-complete:nth-child(10n) { background: var(--row-color); border-color: var(--row-color); color: #fff4c4; }
+.progress-dot.filled.row-celebrating {
+  position: relative;
+  z-index: 1;
+  animation: row-victory-wave .85s calc(var(--cell-index) * 55ms) 2 both;
+}
+@keyframes celebration-arrive {
+  0% { opacity: 0; transform: translate(-50%, -25px) scale(.86); }
+  10% { opacity: 1; transform: translate(-50%, 5px) scale(1.025); }
+  17%, 82% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -14px) scale(.98); }
+}
+@keyframes celebration-emblem {
+  0% { transform: rotate(-22deg) scale(.5); }
+  55% { transform: rotate(12deg) scale(1.2); }
+  100% { transform: rotate(0) scale(1); }
+}
+@keyframes row-victory-wave {
+  0%, 100% { transform: translateY(0) scale(1); box-shadow: none; }
+  40% { transform: translateY(-6px) scale(1.14); box-shadow: 0 4px 12px color-mix(in srgb, var(--row-color) 45%, transparent); }
+}
+@media(max-width: 680px) {
+  .celebration-banner { top: max(12px, env(safe-area-inset-top)); padding: 13px 14px; gap: 10px; border-radius: 18px; }
+  .celebration-emblem { width: 43px; height: 43px; border-radius: 14px; }
+  .celebration-emblem > svg:first-child { width: 26px; height: 26px; }
+  .celebration-copy strong { font-size: 17px; letter-spacing: -.3px; }
+  .celebration-copy > span { font-size: 12px; }
+  .celebration-count { font-size: 24px; padding-inline-start: 2px; }
+  .celebration-count small { font-size: 11px; }
+  .header-actions .sound-button { display: inline-flex; width: 32px; height: 32px; }
+  .header-actions { gap: 6px; }
+}
+@media(prefers-reduced-motion: reduce) {
+  .celebration-banner { animation: none; }
+  .celebration-emblem, .progress-dot.filled.row-celebrating { animation: none; }
+  .celebration-canvas { display: none; }
+}

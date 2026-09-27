@@ -10,6 +10,9 @@ import { Progress } from './components/Progress'
 import { Leaderboard } from './components/Leaderboard'
 import { Modal } from './components/Modal'
 import { Admin } from './components/Admin'
+import { RowCelebration } from './components/RowCelebration'
+import type { RowMilestone } from './components/RowCelebration'
+import { completedRow, milestones } from './lib/celebrations'
 
 type View = 'home' | 'game' | 'result' | 'board' | 'admin'
 type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }
@@ -21,6 +24,7 @@ export default function App() {
   const [name, setName] = useState(() => storage.get('multiply.name') || '')
   const [game, setGame] = useState<GameState | null>(restoreGame)
   const [answer, setAnswer] = useState('')
+  const [celebration, setCelebration] = useState<RowMilestone | null>(null)
   const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null)
   const [error, setError] = useState<'name' | 'network' | 'missing' | null>(null)
   const [busy, setBusy] = useState(false)
@@ -59,17 +63,19 @@ export default function App() {
     if (err instanceof GameApiError && err.code === 'SESSION_NOT_FOUND') { updateGame(null); setView('home'); setFinishModal(false); setError('missing') }
     else setError('network')
   }
-  function playSound() {
+  function playSound(row: number | null = null) {
     if (!sound) return
     try {
       audio.current ??= new AudioContext()
       void audio.current.resume()
-      for (const [index, note] of [523.25, 659.25, 783.99].entries()) {
+      const notes = row ? milestones[row - 1].notes : [72, 76, 79]
+      for (const [index, note] of notes.entries()) {
         const osc = audio.current.createOscillator(); const gain = audio.current.createGain()
-        osc.type = 'sine'; osc.frequency.value = note
-        const start = audio.current.currentTime + index * 0.065
-        gain.gain.setValueAtTime(0, start); gain.gain.linearRampToValueAtTime(0.06, start + 0.01); gain.gain.exponentialRampToValueAtTime(0.001, start + 0.17)
+        osc.type = row ? 'triangle' : 'sine'; osc.frequency.value = 440 * 2 ** ((note - 69) / 12)
+        const start = audio.current.currentTime + index * (row ? 0.1 : 0.065)
+        gain.gain.setValueAtTime(0, start); gain.gain.linearRampToValueAtTime(row ? 0.045 : 0.06, start + 0.01); gain.gain.exponentialRampToValueAtTime(0.001, start + 0.17)
         osc.connect(gain); gain.connect(audio.current.destination); osc.start(start); osc.stop(start + 0.18)
+        osc.onended = () => { osc.disconnect(); gain.disconnect() }
       }
     } catch { /* Sound is optional. */ }
   }
@@ -77,7 +83,7 @@ export default function App() {
     const player = cleanName(name)
     if (!player) { setError('name'); document.getElementById('player-name')?.focus(); return }
     if (!lock()) return
-    setError(null); setFeedback(null); setAnswer(''); storage.set('multiply.name', player)
+    setCelebration(null); setError(null); setFeedback(null); setAnswer(''); storage.set('multiply.name', player)
     try {
       let next: GameState
       if (practice || !configured || !online) next = newPractice(player)
@@ -93,7 +99,7 @@ export default function App() {
   }
   async function resume() {
     if (!game || !lock()) return
-    setError(null); setAnswer(''); setFeedback(null)
+    setCelebration(null); setError(null); setAnswer(''); setFeedback(null)
     try { const next = game.mode === 'competition' ? await resumeCompetition(game.token) : game; updateGame(next); setView(next.finished ? 'result' : 'game') } catch (err) { handleError(err) } finally { unlock() }
   }
   async function checkAnswer(e?: React.FormEvent) {
@@ -104,7 +110,12 @@ export default function App() {
       const result = game.mode === 'practice' ? answerPractice(game, answer) : await submitAnswer(game, answer)
       updateGame(result.game)
       setFeedback(result.correct ? 'correct' : 'incorrect')
-      if (result.correct) { setAnswer(''); playSound(); if (result.game.finished) setView('result') }
+      if (result.correct) {
+        const row = completedRow(game.solved, result.game.solved)
+        if (row) setCelebration({ row, key: `${game.token}:${row}` })
+        setAnswer(''); playSound(row)
+        if (result.game.finished) setView('result')
+      }
       else { answerInput.current?.select() }
       if (feedbackTimer.current) clearTimeout(feedbackTimer.current)
       feedbackTimer.current = setTimeout(() => setFeedback(null), 1800)
@@ -120,9 +131,9 @@ export default function App() {
   }
   function go(next: View) {
     if (active && view === 'game' && next !== 'game') { setFinishModal(true); return }
-    setError(null); setView(next); window.scrollTo({ top: 0, behavior: 'smooth' })
+    setCelebration(null); setError(null); setView(next); window.scrollTo({ top: 0, behavior: 'smooth' })
   }
-  function again() { updateGame(null); setFeedback(null); setError(null); setAnswer(''); setView('home') }
+  function again() { setCelebration(null); updateGame(null); setFeedback(null); setError(null); setAnswer(''); setView('home') }
   async function install() { if (installEvent) { await installEvent.prompt(); await installEvent.userChoice; setInstallEvent(null) } else setInstallModal(true) }
   function digit(value: string) {
     if (feedback === 'incorrect') { setAnswer(value); setFeedback(null) } else setAnswer(previous => (previous + value).slice(0, 3))
@@ -149,7 +160,7 @@ export default function App() {
             {active ? <div className="resume-block"><span className="badge"><RotateCcw size={15}/>{game.mode === 'practice' ? t.practiceMode : t.competition}</span><h2>{t.resume}</h2><p><bdi>{game.name}</bdi> · {game.solved} {t.outOf}</p><p className="muted">{t.resumeSub}</p><button className="button primary wide" disabled={busy || (!online && game.mode === 'competition')} onClick={() => void resume()}>{busy ? t.loading : t.resumeButton}{arrow}</button><button className="text-button" onClick={() => setFinishModal(true)}>{t.discard}</button></div> : <form className="start-form" onSubmit={e => { e.preventDefault(); void start() }}><h2>{t.ready}</h2><p className="muted">{t.readySub}</p><label htmlFor="player-name">{t.nameLabel}</label><input id="player-name" maxLength={24} autoComplete="off" placeholder={t.namePlaceholder} value={name} onChange={e => { setName(e.target.value); if (error === 'name') setError(null) }} aria-describedby="name-hint"/><p id="name-hint" className="input-hint">{t.nameHint}</p><button className="button primary wide" disabled={busy}>{busy ? <LoaderCircle className="spin" size={20}/> : <Play size={19} fill="currentColor"/>}{busy ? t.loading : t.start}{arrow}</button>{configured && online ? <button type="button" className="text-button" disabled={busy} onClick={() => void start(true)}>{t.practice}</button> : <p className="practice-note"><span/>{t.practiceOnly}</p>}</form>}
             <div className="start-card-footer"><span><Heart size={16}/>{t.noRush}</span><span><CircleCheck size={16}/>{t.numbers}</span></div>
           </section>
-          <aside className="side-column"><Progress solved={active ? game.solved : 0} t={t}/><div className="leaderboard-teaser"><span className="trophy-badge"><Trophy size={25}/></span><div><h3>{t.boardTeaser}</h3><p>{t.boardTeaserSub}</p></div><button className="icon-button" aria-label={t.viewBoard} onClick={() => go('board')}>{arrow}</button></div></aside>
+          <aside className="side-column"><Progress solved={active ? game.solved : 0} t={t}/></aside>
         </div>
         <section className="how-to"><h2>{t.howTitle}</h2><div className="steps"><article><span className="step-number">1</span><div><h3>{t.step1}</h3><p>{t.step1Sub}</p></div></article><article><span className="step-number">2</span><div><h3>{t.step2}</h3><p>{t.step2Sub}</p></div></article><article><span className="step-number">3</span><div><h3>{t.step3}</h3><p>{t.step3Sub}</p></div></article></div></section>
       </>}
@@ -163,12 +174,13 @@ export default function App() {
             <p id="answer-feedback" className={`answer-feedback ${feedback || ''}`} aria-live="polite">{feedback === 'correct' ? <><CircleCheck size={17}/>{t.correct}</> : feedback === 'incorrect' ? t.incorrect : t.typeAnswer}</p>
             <div className="keypad" dir="ltr">{['1','2','3','4','5','6','7','8','9'].map(value => <button type="button" key={value} disabled={busy || (!online && game.mode === 'competition')} onClick={() => digit(value)}>{value}</button>)}<button type="button" className="key-erase" aria-label={t.erase} disabled={busy} onClick={() => { setAnswer(v => v.slice(0, -1)); setFeedback(null) }}><Delete size={23}/></button><button type="button" disabled={busy || (!online && game.mode === 'competition')} onClick={() => digit('0')}>0</button><button type="submit" className="key-check" disabled={busy || !answer || (!online && game.mode === 'competition')} aria-label={t.check}>{busy ? <LoaderCircle className="spin" size={22}/> : <Check size={25}/>}<span>{t.check}</span></button></div>
           </form><button className="text-button finish-button" disabled={busy} onClick={() => setFinishModal(true)}><Flag size={16}/>{game.mode === 'practice' ? t.finishPractice : t.finish}</button>
-        </section><aside className="side-column"><Progress solved={game.solved} t={t}/><div className="gentle-note"><Heart size={22}/><div><strong>{t.noRush}</strong><p>{game.mode === 'practice' ? t.savedLocally : t.step2Sub}</p></div></div></aside></div>
+        </section><aside className="side-column"><Progress solved={game.solved} t={t} celebratingRow={celebration?.row}/><div className="gentle-note"><Heart size={22}/><div><strong>{t.noRush}</strong><p>{game.mode === 'practice' ? t.savedLocally : t.step2Sub}</p></div></div></aside></div>
       </>}
-      {view === 'result' && game && <div className="result-layout"><section className="result-card panel"><div className="confetti" aria-hidden="true">{Array.from({ length: 16 }, (_, i) => <i key={i} style={{ '--i': i } as React.CSSProperties}/>)}</div><span className="result-medal"><Trophy size={55}/><Star size={22} className="medal-star"/></span><span className="eyebrow">{game.name}</span><h1>{game.solved === 100 ? t.resultFull : t.resultPartial}</h1><p className="muted">{t.resultSub}</p><div className="result-stats"><div><strong>{game.solved}<small>/ 100</small></strong><span>{t.solved}</span></div><div><strong dir="ltr">{formatTime(game.elapsed)}</strong><span>{t.time}</span></div></div><p className={`result-save ${game.mode === 'practice' ? 'is-practice' : ''}`}><CircleCheck size={18}/>{game.mode === 'practice' ? t.practiceResult : t.saved}</p><button className="button primary wide" onClick={again}><RotateCcw size={18}/>{t.again}</button><button className="button secondary wide" onClick={() => go('board')}><Trophy size={18}/>{t.viewBoard}</button></section><Progress solved={game.solved} t={t}/></div>}
+      {view === 'result' && game && <div className="result-layout"><section className="result-card panel"><div className="confetti" aria-hidden="true">{Array.from({ length: 16 }, (_, i) => <i key={i} style={{ '--i': i } as React.CSSProperties}/>)}</div><span className="result-medal"><Trophy size={55}/><Star size={22} className="medal-star"/></span><span className="eyebrow">{game.name}</span><h1>{game.solved === 100 ? t.resultFull : t.resultPartial}</h1><p className="muted">{t.resultSub}</p><div className="result-stats"><div><strong>{game.solved}<small>/ 100</small></strong><span>{t.solved}</span></div><div><strong dir="ltr">{formatTime(game.elapsed)}</strong><span>{t.time}</span></div></div><p className={`result-save ${game.mode === 'practice' ? 'is-practice' : ''}`}><CircleCheck size={18}/>{game.mode === 'practice' ? t.practiceResult : t.saved}</p><button className="button primary wide" onClick={again}><RotateCcw size={18}/>{t.again}</button><button className="button secondary wide" onClick={() => go('board')}><Trophy size={18}/>{t.viewBoard}</button></section><Progress solved={game.solved} t={t} celebratingRow={celebration?.row}/></div>}
       {view === 'board' && <Leaderboard t={t} language={language} onPlay={() => go(active ? 'game' : 'home')}/>}
       {view === 'admin' && <Admin t={t} language={language} onPlay={() => go('home')}/>}
     </main>
+    {celebration && <RowCelebration key={celebration.key} milestone={celebration} language={language} onComplete={() => setCelebration(null)}/>}
     <footer className="site-footer"><span><span className="footer-cross">×</span>{t.footer}</span><div>{!installed && <button onClick={() => void install()}><Download size={16}/>{t.install}</button>}<button onClick={() => go('admin')}><ShieldCheck size={15}/>{t.admin}</button></div></footer>
     {finishModal && game && <Modal title={t.finishTitle} close={() => !busy && setFinishModal(false)} closeLabel={t.close}><p>{game.mode === 'practice' ? t.finishPracticeText : t.finishText}</p>{error && <p className="notice error" role="alert">{errorText}</p>}{!online && game.mode === 'competition' && <p className="notice offline">{t.onlineLost}</p>}<div className="modal-actions"><button className="button primary" disabled={busy} onClick={() => setFinishModal(false)}>{t.continue}</button><button className="button secondary" disabled={busy || (!online && game.mode === 'competition')} onClick={() => void finish()}>{busy ? t.loading : t.confirmFinish}</button></div></Modal>}
     {installModal && <Modal title={t.installTitle} close={() => setInstallModal(false)} closeLabel={t.close}><p>{t.installText}</p><button className="button primary wide" onClick={() => setInstallModal(false)}>{t.close}</button></Modal>}

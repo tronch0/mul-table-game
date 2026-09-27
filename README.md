@@ -8,6 +8,8 @@ A responsive, installable multiplication game for third grade and up. Hebrew ope
 
 Enter a name or nickname and answer one randomly selected equation at a time. A round covers all 100 ordered pairs from 1×1 through 10×10, including both 3×4 and 4×3. No earlier answers or table coordinates are shown. The progress board only shows how many questions were solved.
 
+Every completed row of ten answers unlocks a different celebration: stars, bubbles, rockets, rainbow ribbons, a halfway sunburst, comets, hearts, lightning, fireworks, and a grand finale at 100. Completed rows keep their own colors. Celebrations do not block the answer controls or pause the clock; sound is optional, and reduced-motion preferences replace the animated particles with a brief achievement badge.
+
 Wrong answers stay on the same question and the clock continues. There is no countdown. Finish all 100 questions or end early and save a partial score. Every competition attempt appears separately. Ranking is **correct answers descending, then elapsed milliseconds ascending**, with creation time and ID providing deterministic order for exact ties. Times on the board include tenths of a second. Names are display labels, not authenticated identities.
 
 Practice works offline after the app has loaded once. Practice scores are never uploaded. Competition requires a connection because PostgreSQL issues each question, checks every answer, and owns the clock. Reloading does not pause a round. A failed request can be retried safely without awarding duplicate points. Progress is saved on the device when browser storage is available.
