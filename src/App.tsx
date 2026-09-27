@@ -44,7 +44,7 @@ export default function App() {
   useEffect(() => { const on = () => setOnline(true); const off = () => setOnline(false); window.addEventListener('online', on); window.addEventListener('offline', off); return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) } }, [])
   useEffect(() => { const onInstall = (e: Event) => { e.preventDefault(); setInstallEvent(e as InstallEvent) }; const done = () => { setInstalled(true); setInstallEvent(null) }; window.addEventListener('beforeinstallprompt', onInstall); window.addEventListener('appinstalled', done); return () => { window.removeEventListener('beforeinstallprompt', onInstall); window.removeEventListener('appinstalled', done) } }, [])
   useEffect(() => { if (!active) return; const timer = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(timer) }, [active])
-  useEffect(() => { if (view === 'game') answerInput.current?.focus() }, [view])
+  useEffect(() => { if (view === 'game' && !busy) { answerInput.current?.focus(); if (feedback === 'incorrect') answerInput.current?.select() } }, [view, busy, feedback])
   useEffect(() => () => { if (feedbackTimer.current) clearTimeout(feedbackTimer.current); void audio.current?.close() }, [])
   useEffect(() => { if (!active) return; const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn) }, [active])
 
