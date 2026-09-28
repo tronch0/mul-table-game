@@ -10,6 +10,8 @@ Enter a name or nickname and answer one randomly selected equation at a time. A 
 
 Every completed row of ten answers unlocks a different celebration: stars, bubbles, rockets, rainbow ribbons, a halfway sunburst, comets, hearts, lightning, fireworks, and a grand finale at 100. Completed rows keep their own colors. Celebrations do not block the answer controls or pause the clock; sound is optional, and reduced-motion preferences replace the animated particles with a brief achievement badge.
 
+On phones, the full progress grid sits beside the equation and answer, above a large number pad. Desktop users can type answers and press Enter continuously; tapping the number pad keeps the answer focused.
+
 Wrong answers stay on the same question and the clock continues. There is no countdown. Finish all 100 questions or end early and save a partial score. Every competition attempt appears separately. Ranking is **correct answers descending, then elapsed milliseconds ascending**, with creation time and ID providing deterministic order for exact ties. Times on the board include tenths of a second. Names are display labels, not authenticated identities.
 
 Practice works offline after the app has loaded once. Practice scores are never uploaded. Competition requires a connection because PostgreSQL issues each question, checks every answer, and owns the clock. Reloading does not pause a round. A failed request can be retried safely without awarding duplicate points. Progress is saved on the device when browser storage is available.
@@ -69,7 +71,7 @@ To use a custom domain at its root, change `VITE_BASE_PATH` to `/` and configure
 - Android/desktop Chrome or Edge: use **Install game** or the browser's install option.
 - iPhone/iPad: open the site in Safari, then **Share → Add to Home Screen**.
 - The app caches its own code, fonts, and icons. It does not cache Supabase API responses. Shared rankings and competition answers require internet access.
-- An update prompt appears between rounds; the app does not force-refresh during an active round.
+- Updates download in the background and apply automatically on an idle home or leaderboard screen. Active/resumable rounds, result screens, dialogs, and text entry are never force-refreshed, including when another tab activates an update. The app checks again when reopened or reconnected, and every five minutes while visible.
 
 ## Data and trust model
 
@@ -81,5 +83,7 @@ To use a custom domain at its root, change `VITE_BASE_PATH` to `/` and configure
 - Incomplete rounds abandoned for seven days are cleaned up when a new round starts. Completed attempts remain until an administrator removes them. The database contains no emails for children; only parent/teacher Auth accounts require email.
 
 ## Verification
+
+Component tests with a simulated browser also cover delayed wrong-answer retries, focus retention, duplicate submission protection, and automatic updates that wait through active rounds, text entry, and updates initiated by another tab.
 
 `npm test` covers deck completeness, mirrored equations, wrong-answer behavior, completion, ordering, multilingual names, and clock formatting. `npm run test:database` executes the actual migration in PGlite/Postgres and verifies the complete 100-question lifecycle, retries, unfinished/zero-score rounds, private table denial, restricted administration, deleting an entry, resetting the board, and invalidating old games. Supabase supplies the production `auth` schema; the integration test provides a minimal equivalent for role checks.

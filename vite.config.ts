@@ -5,6 +5,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 export default defineConfig({
   base: process.env.VITE_BASE_PATH || '/',
   plugins: [react(), VitePWA({
+    // The app activates waiting updates automatically only between rounds.
     registerType: 'prompt',
     includeAssets: ['favicon.svg', 'icons/*.png'],
     manifest: {

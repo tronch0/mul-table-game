@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useRegisterSW } from 'virtual:pwa-register/react'
+import { useAutomaticUpdates } from './lib/useAutomaticUpdates'
 import { ArrowLeft, ArrowRight, Check, CircleCheck, Clock3, Delete, Download, Flag, Globe2, Heart, Lightbulb, LoaderCircle, Play, RotateCcw, ShieldCheck, Sparkles, Star, Trophy, Volume2, VolumeX, WifiOff, X } from 'lucide-react'
 import { messages } from './lib/i18n'
 import type { Language } from './lib/i18n'
@@ -39,8 +39,8 @@ export default function App() {
   const audio = useRef<AudioContext | null>(null)
   const answerInput = useRef<HTMLInputElement>(null)
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW()
   const active = game && !game.finished
+  useAutomaticUpdates(!active && !busy && !finishModal && !installModal && (view === 'home' || view === 'board'))
   const arrow = language === 'he' ? <ArrowLeft size={20}/> : <ArrowRight size={20}/>
 
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }) }, [view])
@@ -48,7 +48,7 @@ export default function App() {
   useEffect(() => { const on = () => setOnline(true); const off = () => setOnline(false); window.addEventListener('online', on); window.addEventListener('offline', off); return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) } }, [])
   useEffect(() => { const onInstall = (e: Event) => { e.preventDefault(); setInstallEvent(e as InstallEvent) }; const done = () => { setInstalled(true); setInstallEvent(null) }; window.addEventListener('beforeinstallprompt', onInstall); window.addEventListener('appinstalled', done); return () => { window.removeEventListener('beforeinstallprompt', onInstall); window.removeEventListener('appinstalled', done) } }, [])
   useEffect(() => { if (!active) return; const timer = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(timer) }, [active])
-  useEffect(() => { if (view === 'game' && !busy) { answerInput.current?.focus(); if (feedback === 'incorrect') answerInput.current?.select() } }, [view, busy, feedback])
+  useEffect(() => { if (view === 'game' && !busy && !finishModal && !installModal) { answerInput.current?.focus({ preventScroll: true }); if (feedback === 'incorrect') answerInput.current?.select() } }, [view, busy, feedback, finishModal, installModal])
   useEffect(() => () => { if (feedbackTimer.current) clearTimeout(feedbackTimer.current); void audio.current?.close() }, [])
   useEffect(() => { if (!active) return; const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn) }, [active])
 
@@ -118,8 +118,8 @@ export default function App() {
       }
       else { answerInput.current?.select() }
       if (feedbackTimer.current) clearTimeout(feedbackTimer.current)
-      feedbackTimer.current = setTimeout(() => setFeedback(null), 1800)
-    } catch (err) { handleError(err) } finally { unlock(); answerInput.current?.focus() }
+      feedbackTimer.current = result.correct ? setTimeout(() => setFeedback(null), 1800) : null
+    } catch (err) { handleError(err) } finally { unlock(); answerInput.current?.focus({ preventScroll: true }) }
   }
   async function finish() {
     if (!game || !lock()) return
@@ -136,12 +136,14 @@ export default function App() {
   function again() { setCelebration(null); updateGame(null); setFeedback(null); setError(null); setAnswer(''); setView('home') }
   async function install() { if (installEvent) { await installEvent.prompt(); await installEvent.userChoice; setInstallEvent(null) } else setInstallModal(true) }
   function digit(value: string) {
+    if (busyRef.current || (!online && game?.mode === 'competition')) return
+    answerInput.current?.focus({ preventScroll: true })
     if (feedback === 'incorrect') { setAnswer(value); setFeedback(null) } else setAnswer(previous => (previous + value).slice(0, 3))
   }
   const elapsed = game ? game.finished ? game.elapsed : Math.max(0, now - game.startedAt) : 0
   const errorText = error === 'name' ? t.emptyName : error === 'missing' ? t.missingGame : t.networkError
 
-  return <div className="app-shell">
+  return <div className={`app-shell${view === 'game' ? ' is-playing' : ''}`}>
     <a className="skip-link" href="#main">{t.play}</a>
     <header className="site-header"><div className="header-inner">
       <button className="brand" onClick={() => go('home')} aria-label={t.brand}><span className="brand-mark" aria-hidden="true">×<i/></span><span><strong>{t.brand}</strong><small>{t.club}</small></span></button>
@@ -150,14 +152,13 @@ export default function App() {
     </div></header>
     <main id="main" className={`main-content view-${view}`}>
       {!online && <div className="notice offline" role="status"><WifiOff size={19}/>{active && game.mode === 'competition' ? t.onlineLost : t.offline}</div>}
-      {needRefresh && !active && <div className="notice"><Sparkles size={18}/>{t.update}<button onClick={() => void updateServiceWorker(true)}>{t.updateButton}</button></div>}
       {error && !finishModal && <div className="notice error" role="alert">{errorText}<button aria-label={t.close} onClick={() => setError(null)}><X size={17}/></button></div>}
       {view === 'home' && <>
         <div className="intro"><span className="eyebrow"><Sparkles size={17}/>{t.eyebrow}</span><h1>{t.title1}<br/><span>{t.title2}</span></h1><p>{t.intro}</p></div>
         <div className="game-layout start-layout">
           <section className="start-card panel">
             <div className="sample-equation" dir="ltr" aria-hidden="true"><span className="number-tile tile-yellow">7</span><span className="math-symbol">×</span><span className="number-tile tile-coral">8</span><span className="math-symbol">=</span><span className="number-tile tile-teal">?</span><Star className="floating-star" size={25}/><Sparkles className="floating-sparkle" size={23}/></div>
-            {active ? <div className="resume-block"><span className="badge"><RotateCcw size={15}/>{game.mode === 'practice' ? t.practiceMode : t.competition}</span><h2>{t.resume}</h2><p><bdi>{game.name}</bdi> · {game.solved} {t.outOf}</p><p className="muted">{t.resumeSub}</p><button className="button primary wide" disabled={busy || (!online && game.mode === 'competition')} onClick={() => void resume()}>{busy ? t.loading : t.resumeButton}{arrow}</button><button className="text-button" onClick={() => setFinishModal(true)}>{t.discard}</button></div> : <form className="start-form" onSubmit={e => { e.preventDefault(); void start() }}><h2>{t.ready}</h2><p className="muted">{t.readySub}</p><label htmlFor="player-name">{t.nameLabel}</label><input id="player-name" maxLength={24} autoComplete="off" placeholder={t.namePlaceholder} value={name} onChange={e => { setName(e.target.value); if (error === 'name') setError(null) }} aria-describedby="name-hint"/><p id="name-hint" className="input-hint">{t.nameHint}</p><button className="button primary wide" disabled={busy}>{busy ? <LoaderCircle className="spin" size={20}/> : <Play size={19} fill="currentColor"/>}{busy ? t.loading : t.start}{arrow}</button>{configured && online ? <button type="button" className="text-button" disabled={busy} onClick={() => void start(true)}>{t.practice}</button> : <p className="practice-note"><span/>{t.practiceOnly}</p>}</form>}
+            {active ? <div className="resume-block"><span className="badge"><RotateCcw size={15}/>{game.mode === 'practice' ? t.practiceMode : t.competition}</span><h2>{t.resume}</h2><p><bdi>{game.name}</bdi> · {game.solved} {t.outOf}</p><p className="muted">{t.resumeSub}</p><button className="button primary wide" disabled={busy || (!online && game.mode === 'competition')} onClick={() => void resume()}>{busy ? t.loading : t.resumeButton}{arrow}</button><button className="text-button" onClick={() => setFinishModal(true)}>{t.discard}</button></div> : <form className="start-form" onSubmit={e => { e.preventDefault(); void start() }}><h2>{t.ready}</h2><p className="muted">{t.readySub}</p><label htmlFor="player-name">{t.nameLabel}</label><input id="player-name" maxLength={24} autoComplete="off" placeholder={t.namePlaceholder} value={name} onChange={e => { setName(e.target.value); storage.set('multiply.name', e.target.value); if (error === 'name') setError(null) }} aria-describedby="name-hint"/><p id="name-hint" className="input-hint">{t.nameHint}</p><button className="button primary wide" disabled={busy}>{busy ? <LoaderCircle className="spin" size={20}/> : <Play size={19} fill="currentColor"/>}{busy ? t.loading : t.start}{arrow}</button>{configured && online ? <button type="button" className="text-button" disabled={busy} onClick={() => void start(true)}>{t.practice}</button> : <p className="practice-note"><span/>{t.practiceOnly}</p>}</form>}
             <div className="start-card-footer"><span><Heart size={16}/>{t.noRush}</span><span><CircleCheck size={16}/>{t.numbers}</span></div>
           </section>
           <aside className="side-column"><Progress solved={active ? game.solved : 0} t={t}/></aside>
@@ -169,10 +170,13 @@ export default function App() {
         <div className="game-layout playing-layout"><section className={`question-card panel ${feedback === 'correct' ? 'success-flash' : ''}`}>
           <div className="question-top"><span><span className="question-dot"/>{t.question} {game.solved + 1} <span className="muted">/ 100</span></span><span className="timer" aria-label={`${t.time}: ${formatTime(elapsed)}`}><Clock3 size={18}/><bdi>{formatTime(elapsed)}</bdi></span></div>
           <form onSubmit={checkAnswer}>
+            <div className="question-workspace">
+            <div className="equation-answer">
             <div className="equation" dir="ltr" aria-label={`${game.question.a} × ${game.question.b}`}><span>{game.question.a}</span><span className="operator">×</span><span>{game.question.b}</span><span className="operator">=</span><span className="question-mark">?</span></div>
-            <label className="sr-only" htmlFor="answer">{t.answer}</label><input ref={answerInput} id="answer" className={`answer-input ${feedback === 'incorrect' ? 'incorrect' : ''}`} dir="ltr" type="text" inputMode="none" autoComplete="off" maxLength={3} placeholder="?" value={answer} onChange={e => { setAnswer(e.target.value.replace(/[^0-9]/g, '').slice(0, 3)); setFeedback(null) }} disabled={busy || (!online && game.mode === 'competition')} aria-describedby="answer-feedback"/>
+            <label className="sr-only" htmlFor="answer">{t.answer}</label><input ref={answerInput} id="answer" className={`answer-input ${feedback === 'incorrect' ? 'incorrect' : ''}`} dir="ltr" type="text" inputMode="none" autoComplete="off" maxLength={3} placeholder="?" value={answer} onChange={e => { setAnswer(e.target.value.replace(/[^0-9]/g, '').slice(0, 3)); setFeedback(null) }} readOnly={busy || (!online && game.mode === 'competition')} aria-busy={busy} onKeyDown={e => { if (e.key === 'Enter' && e.repeat) e.preventDefault() }} aria-describedby="answer-feedback"/>
+            </div><Progress compact solved={game.solved} t={t} celebratingRow={celebration?.row}/></div>
             <p id="answer-feedback" className={`answer-feedback ${feedback || ''}`} aria-live="polite">{feedback === 'correct' ? <><CircleCheck size={17}/>{t.correct}</> : feedback === 'incorrect' ? t.incorrect : t.typeAnswer}</p>
-            <div className="keypad" dir="ltr">{['1','2','3','4','5','6','7','8','9'].map(value => <button type="button" key={value} disabled={busy || (!online && game.mode === 'competition')} onClick={() => digit(value)}>{value}</button>)}<button type="button" className="key-erase" aria-label={t.erase} disabled={busy} onClick={() => { setAnswer(v => v.slice(0, -1)); setFeedback(null) }}><Delete size={23}/></button><button type="button" disabled={busy || (!online && game.mode === 'competition')} onClick={() => digit('0')}>0</button><button type="submit" className="key-check" disabled={busy || !answer || (!online && game.mode === 'competition')} aria-label={t.check}>{busy ? <LoaderCircle className="spin" size={22}/> : <Check size={25}/>}<span>{t.check}</span></button></div>
+            <div className="keypad" dir="ltr" onPointerDown={e => { if (e.button === 0) e.preventDefault() }}>{['1','2','3','4','5','6','7','8','9'].map(value => <button type="button" key={value} disabled={busy || (!online && game.mode === 'competition')} onClick={() => digit(value)}>{value}</button>)}<button type="button" className="key-erase" aria-label={t.erase} disabled={busy || (!online && game.mode === 'competition')} onClick={() => { setAnswer(v => v.slice(0, -1)); setFeedback(null); answerInput.current?.focus({ preventScroll: true }) }}><Delete size={23}/></button><button type="button" disabled={busy || (!online && game.mode === 'competition')} onClick={() => digit('0')}>0</button><button type="submit" className="key-check" disabled={busy || !answer || (!online && game.mode === 'competition')} aria-label={t.check}>{busy ? <LoaderCircle className="spin" size={22}/> : <Check size={25}/>}<span>{t.check}</span></button></div>
           </form><button className="text-button finish-button" disabled={busy} onClick={() => setFinishModal(true)}><Flag size={16}/>{game.mode === 'practice' ? t.finishPractice : t.finish}</button>
         </section><aside className="side-column"><Progress solved={game.solved} t={t} celebratingRow={celebration?.row}/><div className="gentle-note"><Heart size={22}/><div><strong>{t.noRush}</strong><p>{game.mode === 'practice' ? t.savedLocally : t.step2Sub}</p></div></div></aside></div>
       </>}
