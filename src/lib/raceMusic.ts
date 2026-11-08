@@ -36,11 +36,17 @@ export class RaceMusic {
 
   // Called synchronously from a user gesture, before any network request.
   unlock() {
-    if (this.disposed) return
+    if (this.disposed || !this.enabled) return
     try {
+      // iOS otherwise treats Web Audio as game effects and obeys the ringer switch.
+      try {
+        const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession
+        if (session) session.type = 'playback'
+      } catch { /* Older browsers may not support session configuration. */ }
       if (!this.context) {
         const context = new AudioContext()
         this.context = context
+        context.onstatechange = () => { if (!this.disposed) this.sync() }
         const compressor = context.createDynamicsCompressor()
         compressor.threshold.value = -15; compressor.ratio.value = 5
         compressor.connect(context.destination)
@@ -51,6 +57,16 @@ export class RaceMusic {
         const data = this.noise.getChannelData(0)
         let seed = 179
         for (let i = 0; i < data.length; i++) { seed = (seed * 16807) % 2147483647; data[i] = seed / 1073741824 - 1 }
+      }
+      if (this.context.state === 'running') { this.sync(); return }
+      // Start a silent buffer inside the tap itself, before the start-game request.
+      // Some mobile browsers need a source started as well as resume().
+      if (this.context.state !== 'running') {
+        const source = this.context.createBufferSource()
+        source.buffer = this.context.createBuffer(1, 1, this.context.sampleRate)
+        source.connect(this.context.destination)
+        source.onended = () => source.disconnect()
+        source.start(0)
       }
       void this.context.resume().then(() => { if (!this.disposed) this.sync() }).catch(() => {})
     } catch { /* Audio is optional; a race must always remain playable. */ }
@@ -128,7 +144,10 @@ export class RaceMusic {
     this.disposed = true
     if (this.timer !== null) clearInterval(this.timer)
     this.timer = null
-    if (this.context) void this.context.close().catch(() => {})
+    if (this.context) {
+      this.context.onstatechange = null
+      void this.context.close().catch(() => {})
+    }
     this.context = null
   }
 }

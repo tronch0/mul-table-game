@@ -89,6 +89,19 @@ export default function App() {
     document.addEventListener('visibilitychange', sync)
     return () => document.removeEventListener('visibilitychange', sync)
   }, [sound, active, game?.paused, view, finishModal])
+  // Retry after phone calls, screen locking, or a mobile browser interruption.
+  // Keep this in the gesture, rather than after an asynchronous answer request.
+  useEffect(() => {
+    const recover = () => { if (sound && !document.hidden) audio.current?.unlock() }
+    document.addEventListener('touchend', recover, { passive: true })
+    document.addEventListener('click', recover)
+    document.addEventListener('keydown', recover)
+    return () => {
+      document.removeEventListener('touchend', recover)
+      document.removeEventListener('click', recover)
+      document.removeEventListener('keydown', recover)
+    }
+  }, [sound])
   async function start() {
     if (!configured || !online) { setError('network'); return }
     const player = cleanName(name)

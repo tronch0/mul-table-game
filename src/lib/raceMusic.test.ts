@@ -41,3 +41,41 @@ it('remains playable when audio is unavailable', () => {
  vi.stubGlobal('AudioContext', class { constructor() { throw Error('Unavailable') } })
  const music=new RaceMusic();expect(()=>{music.unlock();music.setPlaying(true);music.dispose()}).not.toThrow()
 })
+it('unlocks suspended mobile audio inside the gesture and recovers after interruption', async () => {
+ vi.useFakeTimers()
+ let context: MobileAudio
+ class MobileAudio extends FakeAudio {
+  state = 'suspended'
+  onstatechange: (() => void) | null = null
+  constructor() { super(); context = this }
+  resume = vi.fn(async () => { this.state = 'running'; this.onstatechange?.() })
+ }
+ const session = { type: 'auto' }
+ vi.stubGlobal('navigator', { audioSession: session })
+ vi.stubGlobal('AudioContext', MobileAudio)
+ const music = new RaceMusic()
+ music.setPlaying(true)
+ music.unlock()
+ expect(session.type).toBe('playback')
+ expect(start).toHaveBeenCalledWith(0)
+ await Promise.resolve()
+ expect(vi.getTimerCount()).toBe(1)
+ context!.state = 'interrupted'; context!.onstatechange?.()
+ expect(vi.getTimerCount()).toBe(0)
+ music.unlock(); await Promise.resolve()
+ expect(vi.getTimerCount()).toBe(1)
+ music.setEnabled(false)
+ const calls = context!.resume.mock.calls.length
+ music.unlock()
+ expect(context!.resume).toHaveBeenCalledTimes(calls)
+ music.dispose()
+ expect(context!.onstatechange).toBeNull()
+})
+it('still plays when the audio session API is unsupported', async () => {
+ vi.useFakeTimers(); vi.stubGlobal('AudioContext', FakeAudio)
+ vi.stubGlobal('navigator', { get audioSession() { throw Error('Unsupported') } })
+ const music = new RaceMusic()
+ music.unlock(); music.setPlaying(true); await Promise.resolve()
+ expect(vi.getTimerCount()).toBe(1)
+ music.dispose()
+})
