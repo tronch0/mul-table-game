@@ -95,3 +95,7 @@ Apply `supabase/migrations/002_race_pause.sql` after the original migration befo
 ## Soundtrack
 
 An original 144 BPM tracker-style chiptune uses synthesized arpeggios, bass, lead, kick, snare, and hi-hats. It starts after the player starts/resumes a race, stops during pauses and on hidden tabs, and remembers the mute setting. Existing muted devices stay muted. Music is generated locally with Web Audio, without external samples or downloads.
+
+## Result rankings
+
+Apply `supabase/migrations/003_result_rank.sql` before deploying result rankings. The result screen fetches the exact attempt rank and attempt count from the server, using the leaderboard’s score/time/date/ID ordering. It shows rank even beyond the first 50 scores and handles unavailable or removed entries without inventing a rank. Top 10 receives stars, top 3 fireworks/confetti, and first place an extended golden encore. Rank celebrations wait for any final row animation, respect reduced motion, and never block buttons. Music defaults on unless the player explicitly saved a muted preference.

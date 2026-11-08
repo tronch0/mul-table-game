@@ -26,3 +26,6 @@ export async function finishCompetition(token: string) { return fromServer(await
 export async function getScores(offset = 0) { return rpc<Score[]>('get_leaderboard', { p_offset: offset }) }
 
 export async function pauseCompetition(token: string) { return fromServer(await rpc<ServerState>('pause_game', { p_token: token }), token) }
+
+export type AttemptRank = { rank: number; total: number }
+export async function getAttemptRank(token: string) { return rpc<AttemptRank | null>('get_attempt_rank', { p_token: token }) }

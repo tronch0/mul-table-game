@@ -6,6 +6,7 @@ const db = new PGlite()
 await db.exec(`create role anon; create role authenticated; create schema auth; create table auth.users(id uuid primary key); create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;`)
 await db.exec(await readFile('supabase/migrations/001_game.sql', 'utf8'))
 await db.exec(await readFile('supabase/migrations/002_race_pause.sql', 'utf8'))
+await db.exec(await readFile('supabase/migrations/003_result_rank.sql', 'utf8'))
 async function call(fn, values = [], role = 'anon') {
   await db.exec(`set role ${role}`)
   try { return (await db.query(`select public.${fn}(${values.map((_,i) => `$${i+1}`).join(',')}) as result`, values)).rows[0].result }
@@ -29,6 +30,8 @@ assert.equal((await call('answer_question', [token, game.question.id, game.quest
 game = await call('resume_game', [token])
 assert.equal(game.paused, false)
 assert.ok(game.elapsed_ms < beforePause.elapsed_ms + 1000)
+assert.equal(await call('get_attempt_rank', [token]), null)
+assert.equal(await call('get_attempt_rank', [randomUUID()]), null)
 const originalQuestion = game.question
 const wrong = await call('answer_question', [token, originalQuestion.id, 999])
 assert.equal(wrong.correct, false)
@@ -75,6 +78,16 @@ await db.query('update game_private.games set solved = 1, elapsed_ms = 5 where t
 await db.query('update game_private.games set elapsed_ms = 10 where token = $1', [token2])
 scores = await call('get_leaderboard', [0])
 assert.deepEqual(scores.map(s => s.player_name), ['נועה', 'Zero', 'נועה'])
+assert.deepEqual(await call('get_attempt_rank', [token]), {rank:1,total:3})
+assert.deepEqual(await call('get_attempt_rank', [token3]), {rank:2,total:3})
+assert.deepEqual(await call('get_attempt_rank', [token2], 'authenticated'), {rank:3,total:3})
+// Exact ties use finished_at and UUID, matching the board; names never identify attempts.
+await db.exec("update game_private.games set solved=1,elapsed_ms=10,finished_at='2026-01-01'")
+scores = await call('get_leaderboard')
+for(const t of [token,token2,token3]) {
+ const id=(await db.query('select id from game_private.games where token=$1',[t])).rows[0].id
+ assert.equal((await call('get_attempt_rank',[t])).rank,scores.findIndex(s=>s.id===id)+1)
+}
 // Anonymous clients cannot read private rows or write invented final scores.
 await db.exec('set role anon')
 await assert.rejects(db.query('select * from game_private.games'), /permission denied/)
@@ -95,5 +108,11 @@ await call('start_game', ['Active', activeToken])
 await call('reset_competition', [], 'authenticated')
 assert.deepEqual(await call('get_leaderboard'), [])
 await assert.rejects(call('get_game', [activeToken]), /SESSION_NOT_FOUND/)
+assert.equal(await call('get_attempt_rank',[token]),null)
+// Ranks beyond the first leaderboard page must remain exact.
+for(let i=0;i<55;i++){const t=randomUUID();await call('start_game',['Repeated name',t]);await call('finish_game',[t])}
+const last=randomUUID();await call('start_game',['Repeated name',last]);await call('finish_game',[last]);
+await db.query('update game_private.games set elapsed_ms=999999 where token=$1',[last])
+assert.deepEqual(await call('get_attempt_rank',[last]),{rank:56,total:56})
 await db.close()
 console.log('Database integration passed: 100 questions, retry idempotency, ranking, partial/zero scores, private tables, admin authorization, deletion and reset.')

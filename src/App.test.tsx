@@ -42,6 +42,18 @@ afterEach(() => {
 })
 
 describe('fast answer controls', () => {
+  it('defaults music on and remembers an explicit mute across mounts', async () => {
+    expect(button('השתקת המוזיקה').getAttribute('aria-pressed')).toBe('true')
+    await click('השתקת המוזיקה')
+    expect(localStorage.getItem('multiply.sound')).toBe('false')
+    act(() => root.unmount())
+    root = createRoot(host)
+    act(() => root.render(<App/>))
+    expect(button('הפעלת המוזיקה').getAttribute('aria-pressed')).toBe('false')
+    await click('הפעלת המוזיקה')
+    expect(localStorage.getItem('multiply.sound')).toBe('true')
+  })
+
   it('replaces a wrong answer even after a thinking pause and supports deleting digits', async () => {
     api.submit.mockImplementation(async (game, answer) => answerPractice(game, answer))
     expect(button('English')).toBeUndefined()
