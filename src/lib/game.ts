@@ -2,7 +2,7 @@ export type Question = { id: number; a: number; b: number }
 export type Score = { id: string; player_name: string; solved: number; elapsed_ms: number; finished_at: string }
 export type GameState = {
   token: string; name: string; mode: 'practice' | 'competition'; solved: number;
-  startedAt: number; elapsed: number; question: Question | null; finished: boolean;
+  startedAt: number; elapsed: number; question: Question | null; finished: boolean; paused?: boolean;
   deck?: number[];
 }
 export const questionFor = (id: number): Question => ({ id, a: Math.floor(id / 10) + 1, b: id % 10 + 1 })

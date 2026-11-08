@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAutomaticUpdates } from './lib/useAutomaticUpdates'
-import { ArrowLeft, ArrowRight, Check, CircleCheck, Clock3, Delete, Download, Flag, Globe2, Heart, Lightbulb, LoaderCircle, Play, RotateCcw, ShieldCheck, Sparkles, Star, Trophy, Volume2, VolumeX, WifiOff, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, CircleCheck, Clock3, Delete, Download, Flag, Globe2, Lightbulb, LoaderCircle, Play, RotateCcw, ShieldCheck, Sparkles, Star, Trophy, Volume2, VolumeX, WifiOff, X } from 'lucide-react'
 import { messages } from './lib/i18n'
 import type { Language } from './lib/i18n'
-import { answerPractice, cleanName, formatTime, newPractice, restoreGame, storage } from './lib/game'
+import { answerPractice, cleanName, formatTime, restoreGame, storage } from './lib/game'
 import type { GameState } from './lib/game'
-import { configured, finishCompetition, GameApiError, resumeCompetition, startCompetition, submitAnswer } from './lib/api'
+import { configured, pauseCompetition, finishCompetition, GameApiError, resumeCompetition, startCompetition, submitAnswer } from './lib/api'
+import { RaceKey } from './components/RaceKey'
 import { Progress } from './components/Progress'
 import { Leaderboard } from './components/Leaderboard'
 import { Modal } from './components/Modal'
@@ -22,7 +23,7 @@ export default function App() {
   const t = messages[language]
   const [view, setView] = useState<View>('home')
   const [name, setName] = useState(() => storage.get('multiply.name') || '')
-  const [game, setGame] = useState<GameState | null>(restoreGame)
+  const [game, setGame] = useState<GameState | null>(() => { const saved = restoreGame(); return saved?.mode === 'competition' ? saved : null })
   const [answer, setAnswer] = useState('')
   const [celebration, setCelebration] = useState<RowMilestone | null>(null)
   const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null)
@@ -47,7 +48,7 @@ export default function App() {
   useEffect(() => { document.documentElement.lang = language; document.documentElement.dir = language === 'he' ? 'rtl' : 'ltr'; document.title = `${t.brand} · ${language === 'he' ? 'משחק לוח הכפל' : 'A multiplication adventure'}`; storage.set('multiply.language', language) }, [language, t.brand])
   useEffect(() => { const on = () => setOnline(true); const off = () => setOnline(false); window.addEventListener('online', on); window.addEventListener('offline', off); return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) } }, [])
   useEffect(() => { const onInstall = (e: Event) => { e.preventDefault(); setInstallEvent(e as InstallEvent) }; const done = () => { setInstalled(true); setInstallEvent(null) }; window.addEventListener('beforeinstallprompt', onInstall); window.addEventListener('appinstalled', done); return () => { window.removeEventListener('beforeinstallprompt', onInstall); window.removeEventListener('appinstalled', done) } }, [])
-  useEffect(() => { if (!active) return; const timer = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(timer) }, [active])
+  useEffect(() => { if (!active || game.paused || finishModal) return; const timer = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(timer) }, [active, game?.paused, finishModal])
   useEffect(() => { if (view === 'game' && !busy && !finishModal && !installModal) { answerInput.current?.focus({ preventScroll: true }); if (feedback === 'incorrect') answerInput.current?.select() } }, [view, busy, feedback, finishModal, installModal])
   useEffect(() => () => { if (feedbackTimer.current) clearTimeout(feedbackTimer.current); void audio.current?.close() }, [])
   useEffect(() => { if (!active) return; const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn) }, [active])
@@ -79,15 +80,15 @@ export default function App() {
       }
     } catch { /* Sound is optional. */ }
   }
-  async function start(practice = false) {
+  async function start() {
+    if (!configured || !online) { setError('network'); return }
     const player = cleanName(name)
     if (!player) { setError('name'); document.getElementById('player-name')?.focus(); return }
     if (!lock()) return
     setCelebration(null); setError(null); setFeedback(null); setAnswer(''); storage.set('multiply.name', player)
     try {
       let next: GameState
-      if (practice || !configured || !online) next = newPractice(player)
-      else {
+      {
         let pending: { name: string; token: string } | null = null
         try { pending = JSON.parse(storage.get('multiply.pending') || 'null') } catch { /* Ignore old invalid storage. */ }
         const token = pending?.name === player && typeof pending.token === 'string' ? pending.token : crypto.randomUUID()
@@ -100,15 +101,16 @@ export default function App() {
   async function resume() {
     if (!game || !lock()) return
     setCelebration(null); setError(null); setAnswer(''); setFeedback(null)
-    try { const next = game.mode === 'competition' ? await resumeCompetition(game.token) : game; updateGame(next); setView(next.finished ? 'result' : 'game') } catch (err) { handleError(err) } finally { unlock() }
+    try { const next = game.mode === 'competition' ? await resumeCompetition(game.token) : { ...game, paused: false, startedAt: Date.now() - game.elapsed }; updateGame(next); setView(next.finished ? 'result' : 'game'); setFinishModal(false) } catch (err) { handleError(err) } finally { unlock() }
   }
   async function checkAnswer(e?: React.FormEvent) {
     e?.preventDefault()
-    if (!game || game.finished || !/^\d{1,3}$/.test(answer) || (!online && game.mode === 'competition') || !lock()) return
+    if (!game || game.finished || game.paused || finishModal || !/^\d{1,3}$/.test(answer) || (!online && game.mode === 'competition') || !lock()) return
     setError(null)
     try {
       const result = game.mode === 'practice' ? answerPractice(game, answer) : await submitAnswer(game, answer)
       updateGame(result.game)
+      if (result.game.paused) setFinishModal(true)
       setFeedback(result.correct ? 'correct' : 'incorrect')
       if (result.correct) {
         const row = completedRow(game.solved, result.game.solved)
@@ -121,16 +123,23 @@ export default function App() {
       feedbackTimer.current = result.correct ? setTimeout(() => setFeedback(null), 1800) : null
     } catch (err) { handleError(err) } finally { unlock(); answerInput.current?.focus({ preventScroll: true }) }
   }
+  async function pause() {
+    if (!game || !lock()) return
+    setFinishModal(true); setAnswer(''); setCelebration(null); setError(null)
+    try {
+      updateGame(game.mode === 'competition' ? await pauseCompetition(game.token) : { ...game, paused: true, elapsed: game.paused ? game.elapsed : Date.now() - game.startedAt })
+    } catch (err) { handleError(err) } finally { unlock() }
+  }
   async function finish() {
     if (!game || !lock()) return
     setError(null)
     try {
-      const next = game.mode === 'competition' ? await finishCompetition(game.token) : { ...game, finished: true, question: null, elapsed: Date.now() - game.startedAt }
+      const next = game.mode === 'competition' ? await finishCompetition(game.token) : { ...game, finished: true, question: null, elapsed: game.paused ? game.elapsed : Date.now() - game.startedAt }
       updateGame(next); setFinishModal(false); setView('result')
     } catch (err) { handleError(err) } finally { unlock() }
   }
   function go(next: View) {
-    if (active && view === 'game' && next !== 'game') { setFinishModal(true); return }
+    if (active && view === 'game' && next !== 'game') { void pause(); return }
     setCelebration(null); setError(null); setView(next); window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   function again() { setCelebration(null); updateGame(null); setFeedback(null); setError(null); setAnswer(''); setView('home') }
@@ -140,7 +149,7 @@ export default function App() {
     answerInput.current?.focus({ preventScroll: true })
     if (feedback === 'incorrect') { setAnswer(value); setFeedback(null) } else setAnswer(previous => (previous + value).slice(0, 3))
   }
-  const elapsed = game ? game.finished ? game.elapsed : Math.max(0, now - game.startedAt) : 0
+  const elapsed = game ? game.finished || game.paused ? game.elapsed : Math.max(0, now - game.startedAt) : 0
   const errorText = error === 'name' ? t.emptyName : error === 'missing' ? t.missingGame : t.networkError
 
   return <div className={`app-shell${view === 'game' ? ' is-playing' : ''}`}>
@@ -158,14 +167,14 @@ export default function App() {
         <div className="game-layout start-layout">
           <section className="start-card panel">
             <div className="sample-equation" dir="ltr" aria-hidden="true"><span className="number-tile tile-yellow">7</span><span className="math-symbol">×</span><span className="number-tile tile-coral">8</span><span className="math-symbol">=</span><span className="number-tile tile-teal">?</span><Star className="floating-star" size={25}/><Sparkles className="floating-sparkle" size={23}/></div>
-            {active ? <div className="resume-block"><span className="badge"><RotateCcw size={15}/>{game.mode === 'practice' ? t.practiceMode : t.competition}</span><h2>{t.resume}</h2><p><bdi>{game.name}</bdi> · {game.solved} {t.outOf}</p><p className="muted">{t.resumeSub}</p><button className="button primary wide" disabled={busy || (!online && game.mode === 'competition')} onClick={() => void resume()}>{busy ? t.loading : t.resumeButton}{arrow}</button><button className="text-button" onClick={() => setFinishModal(true)}>{t.discard}</button></div> : <form className="start-form" onSubmit={e => { e.preventDefault(); void start() }}><h2>{t.ready}</h2><p className="muted">{t.readySub}</p><label htmlFor="player-name">{t.nameLabel}</label><input id="player-name" maxLength={24} autoComplete="off" placeholder={t.namePlaceholder} value={name} onChange={e => { setName(e.target.value); storage.set('multiply.name', e.target.value); if (error === 'name') setError(null) }} aria-describedby="name-hint"/><p id="name-hint" className="input-hint">{t.nameHint}</p><button className="button primary wide" disabled={busy}>{busy ? <LoaderCircle className="spin" size={20}/> : <Play size={19} fill="currentColor"/>}{busy ? t.loading : t.start}{arrow}</button>{configured && online ? <button type="button" className="text-button" disabled={busy} onClick={() => void start(true)}>{t.practice}</button> : <p className="practice-note"><span/>{t.practiceOnly}</p>}</form>}
-            <div className="start-card-footer"><span><Heart size={16}/>{t.noRush}</span><span><CircleCheck size={16}/>{t.numbers}</span></div>
+            {active ? <div className="resume-block"><span className="badge"><RotateCcw size={15}/>{game.mode === 'practice' ? t.practiceMode : t.competition}</span><h2>{t.resume}</h2><p><bdi>{game.name}</bdi> · {game.solved} {t.outOf}</p><p className="muted">{t.resumeSub}</p><button className="button primary wide" disabled={busy || (!online && game.mode === 'competition')} onClick={() => void resume()}>{busy ? t.loading : t.resumeButton}{arrow}</button><button className="text-button" onClick={() => void pause()}>{t.discard}</button></div> : <form className="start-form" onSubmit={e => { e.preventDefault(); void start() }}><h2>{t.ready}</h2><p className="muted">{t.readySub}</p><label htmlFor="player-name">{t.nameLabel}</label><input id="player-name" maxLength={24} autoComplete="off" placeholder={t.namePlaceholder} value={name} onChange={e => { setName(e.target.value); storage.set('multiply.name', e.target.value); if (error === 'name') setError(null) }} aria-describedby="name-hint"/><p id="name-hint" className="input-hint">{t.nameHint}</p><button className="button primary wide" disabled={busy || !online || !configured}>{busy ? <LoaderCircle className="spin" size={20}/> : <Play size={19} fill="currentColor"/>}{busy ? t.loading : t.start}{arrow}</button></form>}
+
           </section>
           <aside className="side-column"><Progress solved={active ? game.solved : 0} t={t}/></aside>
         </div>
         <section className="how-to"><h2>{t.howTitle}</h2><div className="steps"><article><span className="step-number">1</span><div><h3>{t.step1}</h3><p>{t.step1Sub}</p></div></article><article><span className="step-number">2</span><div><h3>{t.step2}</h3><p>{t.step2Sub}</p></div></article><article><span className="step-number">3</span><div><h3>{t.step3}</h3><p>{t.step3Sub}</p></div></article></div></section>
       </>}
-      {view === 'game' && game && game.question && <>
+      {view === 'game' && game && game.question && !finishModal && <>
         <div className="game-page-heading"><div><span className="eyebrow"><Sparkles size={17}/>{t.hi} <bdi>{game.name}</bdi>!</span><h1>{t.ready}</h1></div><span className={`badge ${game.mode === 'practice' ? 'practice-badge' : ''}`}>{game.mode === 'practice' ? <Lightbulb size={16}/> : <Trophy size={16}/>} {game.mode === 'practice' ? t.practiceMode : t.competition}</span></div>
         <div className="game-layout playing-layout"><section className={`question-card panel ${feedback === 'correct' ? 'success-flash' : ''}`}>
           <div className="question-top"><span><span className="question-dot"/>{t.question} {game.solved + 1} <span className="muted">/ 100</span></span><span className="timer" aria-label={`${t.time}: ${formatTime(elapsed)}`}><Clock3 size={18}/><bdi>{formatTime(elapsed)}</bdi></span></div>
@@ -176,9 +185,9 @@ export default function App() {
             <label className="sr-only" htmlFor="answer">{t.answer}</label><input ref={answerInput} id="answer" className={`answer-input ${feedback === 'incorrect' ? 'incorrect' : ''}`} dir="ltr" type="text" inputMode="none" autoComplete="off" maxLength={3} placeholder="?" value={answer} onChange={e => { setAnswer(e.target.value.replace(/[^0-9]/g, '').slice(0, 3)); setFeedback(null) }} readOnly={busy || (!online && game.mode === 'competition')} aria-busy={busy} onKeyDown={e => { if (e.key === 'Enter' && e.repeat) e.preventDefault() }} aria-describedby="answer-feedback"/>
             </div><Progress compact solved={game.solved} t={t} celebratingRow={celebration?.row}/></div>
             <p id="answer-feedback" className={`answer-feedback ${feedback || ''}`} aria-live="polite">{feedback === 'correct' ? <><CircleCheck size={17}/>{t.correct}</> : feedback === 'incorrect' ? t.incorrect : t.typeAnswer}</p>
-            <div className="keypad" dir="ltr" onPointerDown={e => { if (e.button === 0) e.preventDefault() }}>{['1','2','3','4','5','6','7','8','9'].map(value => <button type="button" key={value} disabled={busy || (!online && game.mode === 'competition')} onClick={() => digit(value)}>{value}</button>)}<button type="button" className="key-erase" aria-label={t.erase} disabled={busy || (!online && game.mode === 'competition')} onClick={() => { setAnswer(v => v.slice(0, -1)); setFeedback(null); answerInput.current?.focus({ preventScroll: true }) }}><Delete size={23}/></button><button type="button" disabled={busy || (!online && game.mode === 'competition')} onClick={() => digit('0')}>0</button><button type="submit" className="key-check" disabled={busy || !answer || (!online && game.mode === 'competition')} aria-label={t.check}>{busy ? <LoaderCircle className="spin" size={22}/> : <Check size={25}/>}<span>{t.check}</span></button></div>
-          </form><button className="text-button finish-button" disabled={busy} onClick={() => setFinishModal(true)}><Flag size={16}/>{game.mode === 'practice' ? t.finishPractice : t.finish}</button>
-        </section><aside className="side-column"><Progress solved={game.solved} t={t} celebratingRow={celebration?.row}/><div className="gentle-note"><Heart size={22}/><div><strong>{t.noRush}</strong><p>{game.mode === 'practice' ? t.savedLocally : t.step2Sub}</p></div></div></aside></div>
+            <div className="keypad" dir="ltr" onPointerDown={e => { if (e.button === 0) e.preventDefault() }}>{['1','2','3','4','5','6','7','8','9'].map(value => <RaceKey key={value} value={value} disabled={busy || !online} onDigit={digit}/>)}<button type="button" className="key-erase" aria-label={t.erase} disabled={busy || (!online && game.mode === 'competition')} onClick={() => { setAnswer(v => v.slice(0, -1)); setFeedback(null); answerInput.current?.focus({ preventScroll: true }) }}><Delete size={23}/></button><RaceKey value="0" disabled={busy || !online} onDigit={digit}/><button type="submit" className="key-check" disabled={busy || !answer || (!online && game.mode === 'competition')} aria-label={t.check}>{busy ? <LoaderCircle className="spin" size={22}/> : <Check size={25}/>}<span>{t.check}</span></button></div>
+          </form><button className="text-button finish-button" disabled={busy} onClick={() => void pause()}><Flag size={16}/>{game.mode === 'practice' ? t.finishPractice : t.finish}</button>
+        </section><aside className="side-column"><Progress solved={game.solved} t={t} celebratingRow={celebration?.row}/></aside></div>
       </>}
       {view === 'result' && game && <div className="result-layout"><section className="result-card panel"><div className="confetti" aria-hidden="true">{Array.from({ length: 16 }, (_, i) => <i key={i} style={{ '--i': i } as React.CSSProperties}/>)}</div><span className="result-medal"><Trophy size={55}/><Star size={22} className="medal-star"/></span><span className="eyebrow">{game.name}</span><h1>{game.solved === 100 ? t.resultFull : t.resultPartial}</h1><p className="muted">{t.resultSub}</p><div className="result-stats"><div><strong>{game.solved}<small>/ 100</small></strong><span>{t.solved}</span></div><div><strong dir="ltr">{formatTime(game.elapsed)}</strong><span>{t.time}</span></div></div><p className={`result-save ${game.mode === 'practice' ? 'is-practice' : ''}`}><CircleCheck size={18}/>{game.mode === 'practice' ? t.practiceResult : t.saved}</p><button className="button primary wide" onClick={again}><RotateCcw size={18}/>{t.again}</button><button className="button secondary wide" onClick={() => go('board')}><Trophy size={18}/>{t.viewBoard}</button></section><Progress solved={game.solved} t={t} celebratingRow={celebration?.row}/></div>}
       {view === 'board' && <Leaderboard t={t} language={language} onPlay={() => go(active ? 'game' : 'home')}/>}
@@ -186,7 +195,7 @@ export default function App() {
     </main>
     {celebration && <RowCelebration key={celebration.key} milestone={celebration} language={language} onComplete={() => setCelebration(null)}/>}
     <footer className="site-footer"><span><span className="footer-cross">×</span>{t.footer}</span><div>{!installed && <button onClick={() => void install()}><Download size={16}/>{t.install}</button>}<button onClick={() => go('admin')}><ShieldCheck size={15}/>{t.admin}</button></div></footer>
-    {finishModal && game && <Modal title={t.finishTitle} close={() => !busy && setFinishModal(false)} closeLabel={t.close}><p>{game.mode === 'practice' ? t.finishPracticeText : t.finishText}</p>{error && <p className="notice error" role="alert">{errorText}</p>}{!online && game.mode === 'competition' && <p className="notice offline">{t.onlineLost}</p>}<div className="modal-actions"><button className="button primary" disabled={busy} onClick={() => setFinishModal(false)}>{t.continue}</button><button className="button secondary" disabled={busy || (!online && game.mode === 'competition')} onClick={() => void finish()}>{busy ? t.loading : t.confirmFinish}</button></div></Modal>}
+    {finishModal && game && <Modal title={t.finishTitle} close={() => { if (!busy) void resume() }} closeLabel={t.close}><p>{busy ? t.loading : game.paused ? t.finishText : t.networkError}</p><div className="paused-clock" dir="ltr">{formatTime(elapsed)}</div>{error && <p className="notice error" role="alert">{errorText}</p>}{!online && game.mode === 'competition' && <p className="notice offline">{t.onlineLost}</p>}<div className="modal-actions"><button className="button primary" disabled={busy} onClick={() => void resume()}>{t.continue}</button><button className="button secondary" disabled={busy || (!online && game.mode === 'competition')} onClick={() => void finish()}>{busy ? t.loading : t.confirmFinish}</button></div></Modal>}
     {installModal && <Modal title={t.installTitle} close={() => setInstallModal(false)} closeLabel={t.close}><p>{t.installText}</p><button className="button primary wide" onClick={() => setInstallModal(false)}>{t.close}</button></Modal>}
   </div>
 }

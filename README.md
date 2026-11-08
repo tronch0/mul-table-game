@@ -12,9 +12,9 @@ Every completed row of ten answers unlocks a different celebration: stars, bubbl
 
 On phones, the full progress grid sits beside the equation and answer, above a large number pad. Desktop users can type answers and press Enter continuously; tapping the number pad keeps the answer focused.
 
-Wrong answers stay on the same question and the clock continues. There is no countdown. Finish all 100 questions or end early and save a partial score. Every competition attempt appears separately. Ranking is **correct answers descending, then elapsed milliseconds ascending**, with creation time and ID providing deterministic order for exact ties. Times on the board include tenths of a second. Names are display labels, not authenticated identities.
+Wrong answers stay on the same question and the clock continues. Pause/finish hides the equation and pauses the server clock; resuming excludes the paused interval, and finishing preserves the frozen time. There is no countdown. Finish all 100 questions or end early and save a partial score. Every competition attempt appears separately. Ranking is **correct answers descending, then elapsed milliseconds ascending**, with creation time and ID providing deterministic order for exact ties. Times on the board include tenths of a second. Names are display labels, not authenticated identities.
 
-Practice works offline after the app has loaded once. Practice scores are never uploaded. Competition requires a connection because PostgreSQL issues each question, checks every answer, and owns the clock. Reloading does not pause a round. A failed request can be retried safely without awarding duplicate points. Progress is saved on the device when browser storage is available.
+The race requires a connection because PostgreSQL issues each question, checks every answer, and owns the clock. Reloading does not pause a round. A failed request can be retried safely without awarding duplicate points. Progress is saved on the device when browser storage is available.
 
 ## Development
 
@@ -28,7 +28,7 @@ npm run test:database
 npm run build
 ```
 
-Without Supabase environment variables, the app clearly offers practice and displays a pending shared-leaderboard state. There are no invented scores and no device-local substitute for the shared competition.
+Without Supabase environment variables or a connection, starting a race is disabled. There are no invented scores and no device-local substitute for the shared competition.
 
 ## Connect Supabase
 
@@ -87,3 +87,7 @@ To use a custom domain at its root, change `VITE_BASE_PATH` to `/` and configure
 Component tests with a simulated browser also cover delayed wrong-answer retries, focus retention, duplicate submission protection, and automatic updates that wait through active rounds, text entry, and updates initiated by another tab.
 
 `npm test` covers deck completeness, mirrored equations, wrong-answer behavior, completion, ordering, multilingual names, and clock formatting. `npm run test:database` executes the actual migration in PGlite/Postgres and verifies the complete 100-question lifecycle, retries, unfinished/zero-score rounds, private table denial, restricted administration, deleting an entry, resetting the board, and invalidating old games. Supabase supplies the production `auth` schema; the integration test provides a minimal equivalent for role checks.
+
+## Race upgrade
+
+Apply `supabase/migrations/002_race_pause.sql` after the original migration before deploying the race client. This preserves existing scores and adds server-authorized pause/resume. New races are competition only; the number pad enters digits on pointer press, with click deduplication and keyboard support. Pausing is explicit: closing the app without pausing still counts elapsed time.

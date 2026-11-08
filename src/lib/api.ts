@@ -12,15 +12,17 @@ export async function rpc<T>(name: string, args: Record<string, unknown> = {}): 
   if (error) throw new GameApiError(error.message.includes('SESSION_NOT_FOUND') ? 'SESSION_NOT_FOUND' : error.message.includes('RATE_LIMIT') ? 'RATE_LIMIT' : 'NETWORK')
   return data as T
 }
-type ServerState = { solved: number; elapsed_ms: number; finished: boolean; question: { id: number; a: number; b: number } | null; player_name: string; correct?: boolean }
+type ServerState = { solved: number; elapsed_ms: number; finished: boolean; paused?: boolean; question: { id: number; a: number; b: number } | null; player_name: string; correct?: boolean }
 export function fromServer(server: ServerState, token: string): GameState {
-  return { token, name: server.player_name, mode: 'competition', solved: server.solved, elapsed: server.elapsed_ms, startedAt: Date.now() - server.elapsed_ms, finished: server.finished, question: server.question }
+  return { token, name: server.player_name, mode: 'competition', solved: server.solved, elapsed: server.elapsed_ms, startedAt: Date.now() - server.elapsed_ms, finished: server.finished, paused: server.paused, question: server.question }
 }
 export async function startCompetition(name: string, token: string) { return fromServer(await rpc<ServerState>('start_game', { p_name: name, p_token: token }), token) }
-export async function resumeCompetition(token: string) { return fromServer(await rpc<ServerState>('get_game', { p_token: token }), token) }
+export async function resumeCompetition(token: string) { return fromServer(await rpc<ServerState>('resume_game', { p_token: token }), token) }
 export async function submitAnswer(game: GameState, answer: string) {
   const state = await rpc<ServerState>('answer_question', { p_token: game.token, p_question: game.question!.id, p_answer: Number(answer) })
   return { game: fromServer(state, game.token), correct: state.correct === true }
 }
 export async function finishCompetition(token: string) { return fromServer(await rpc<ServerState>('finish_game', { p_token: token }), token) }
 export async function getScores(offset = 0) { return rpc<Score[]>('get_leaderboard', { p_offset: offset }) }
+
+export async function pauseCompetition(token: string) { return fromServer(await rpc<ServerState>('pause_game', { p_token: token }), token) }

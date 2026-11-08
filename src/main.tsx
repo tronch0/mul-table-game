@@ -15,3 +15,5 @@ import './styles.css'
 import './components/gameplay.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>)
+
+import './components/race.css'

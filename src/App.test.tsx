@@ -7,7 +7,7 @@ import { answerPractice, newPractice } from './lib/game'
 import type { GameState } from './lib/game'
 
 const api = vi.hoisted(() => ({ start: vi.fn(), submit: vi.fn() }))
-vi.mock('./lib/api', () => ({ configured: true, supabase: null, startCompetition: api.start, submitAnswer: api.submit, finishCompetition: vi.fn(), resumeCompetition: vi.fn(), GameApiError: class extends Error {} }))
+vi.mock('./lib/api', () => ({ configured: true, supabase: null, startCompetition: api.start, submitAnswer: api.submit, pauseCompetition: vi.fn(), finishCompetition: vi.fn(), resumeCompetition: vi.fn(), GameApiError: class extends Error {} }))
 vi.mock('./lib/useAutomaticUpdates', () => ({ useAutomaticUpdates: vi.fn() }))
 let root: ReturnType<typeof createRoot>
 let host: HTMLDivElement
@@ -43,7 +43,8 @@ afterEach(() => {
 
 describe('fast answer controls', () => {
   it('replaces a wrong answer even after a thinking pause and supports deleting digits', async () => {
-    await click('Just practicing')
+    api.submit.mockImplementation(async (game, answer) => answerPractice(game, answer))
+    await click('Start racing')
     await click('0')
     await click('Check')
     act(() => vi.advanceTimersByTime(5000))
@@ -61,7 +62,7 @@ describe('fast answer controls', () => {
   it('locks pending submissions, keeps focus, and immediately enables the next answer', async () => {
     let resolve!: (result: ReturnType<typeof answerPractice>) => void
     api.submit.mockReturnValue(new Promise(r => { resolve = r }))
-    await click('Let’s do this!')
+    await click('Start racing')
     const answer = String(round.question!.a * round.question!.b)
     for (const digit of answer) await click(digit)
     await click('Check')
