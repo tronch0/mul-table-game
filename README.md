@@ -2,13 +2,13 @@
 
 **[Play the game](https://tronch0.github.io/mul-table-game/)** · [Source](https://github.com/tronch0/mul-table-game)
 
-A responsive, installable multiplication game for third grade and up. Hebrew opens by default; an English switch changes both the language and reading direction.
+A responsive, installable multiplication game for third grade and up. The interface is Hebrew only, including for devices that previously selected English.
 
 ## Play
 
 Enter a name or nickname and answer one randomly selected equation at a time. A round covers all 100 ordered pairs from 1×1 through 10×10, including both 3×4 and 4×3. No earlier answers or table coordinates are shown. The progress board only shows how many questions were solved.
 
-Every completed row of ten answers unlocks a different celebration: stars, bubbles, rockets, rainbow ribbons, a halfway sunburst, comets, hearts, lightning, fireworks, and a grand finale at 100. Completed rows keep their own colors. Celebrations do not block the answer controls or pause the clock; sound is optional, and reduced-motion preferences replace the animated particles with a brief achievement badge.
+Every completed row of ten answers unlocks a different celebration: stars, bubbles, rockets, rainbow ribbons, a halfway sunburst, comets, hearts, lightning, fireworks, and a grand finale at 100. Completed rows keep their own colors. Celebrations do not block the answer controls or pause the clock; sound can be muted, and reduced-motion preferences replace the animated particles with a brief achievement badge.
 
 On phones, the full progress grid sits beside the equation and answer, above a large number pad. Desktop users can type answers and press Enter continuously; tapping the number pad keeps the answer focused.
 
@@ -91,3 +91,7 @@ Component tests with a simulated browser also cover delayed wrong-answer retries
 ## Race upgrade
 
 Apply `supabase/migrations/002_race_pause.sql` after the original migration before deploying the race client. This preserves existing scores and adds server-authorized pause/resume. New races are competition only; the number pad enters digits on pointer press, with click deduplication and keyboard support. Pausing is explicit: closing the app without pausing still counts elapsed time.
+
+## Soundtrack
+
+An original 144 BPM tracker-style chiptune uses synthesized arpeggios, bass, lead, kick, snare, and hi-hats. It starts after the player starts/resumes a race, stops during pauses and on hidden tabs, and remembers the mute setting. Existing muted devices stay muted. Music is generated locally with Web Audio, without external samples or downloads.

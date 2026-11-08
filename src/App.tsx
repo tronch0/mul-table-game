@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAutomaticUpdates } from './lib/useAutomaticUpdates'
-import { ArrowLeft, ArrowRight, Check, CircleCheck, Clock3, Delete, Download, Flag, Globe2, Lightbulb, LoaderCircle, Play, RotateCcw, ShieldCheck, Sparkles, Star, Trophy, Volume2, VolumeX, WifiOff, X } from 'lucide-react'
+import { ArrowLeft, Check, CircleCheck, Clock3, Delete, Download, Flag, Lightbulb, LoaderCircle, Play, RotateCcw, ShieldCheck, Sparkles, Star, Trophy, Volume2, VolumeX, WifiOff, X } from 'lucide-react'
 import { messages } from './lib/i18n'
-import type { Language } from './lib/i18n'
+import { RaceMusic } from './lib/raceMusic'
 import { answerPractice, cleanName, formatTime, restoreGame, storage } from './lib/game'
 import type { GameState } from './lib/game'
 import { configured, pauseCompetition, finishCompetition, GameApiError, resumeCompetition, startCompetition, submitAnswer } from './lib/api'
@@ -17,9 +17,9 @@ import { completedRow, milestones } from './lib/celebrations'
 
 type View = 'home' | 'game' | 'result' | 'board' | 'admin'
 type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }
-function readLanguage(): Language { return storage.get('multiply.language') === 'en' ? 'en' : 'he' }
+
 export default function App() {
-  const [language, setLanguage] = useState<Language>(readLanguage)
+  const language = 'he' as const
   const t = messages[language]
   const [view, setView] = useState<View>('home')
   const [name, setName] = useState(() => storage.get('multiply.name') || '')
@@ -36,21 +36,21 @@ export default function App() {
   const [installModal, setInstallModal] = useState(false)
   const [installEvent, setInstallEvent] = useState<InstallEvent | null>(null)
   const [installed, setInstalled] = useState(() => matchMedia('(display-mode: standalone)').matches)
-  const [sound, setSound] = useState(() => storage.get('multiply.sound') === 'true')
-  const audio = useRef<AudioContext | null>(null)
+  const [sound, setSound] = useState(() => storage.get('multiply.sound') !== 'false')
+  const audio = useRef<RaceMusic | null>(null)
   const answerInput = useRef<HTMLInputElement>(null)
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const active = game && !game.finished
   useAutomaticUpdates(!active && !busy && !finishModal && !installModal && (view === 'home' || view === 'board'))
-  const arrow = language === 'he' ? <ArrowLeft size={20}/> : <ArrowRight size={20}/>
+  const arrow = <ArrowLeft size={20}/>
 
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }) }, [view])
-  useEffect(() => { document.documentElement.lang = language; document.documentElement.dir = language === 'he' ? 'rtl' : 'ltr'; document.title = `${t.brand} · ${language === 'he' ? 'משחק לוח הכפל' : 'A multiplication adventure'}`; storage.set('multiply.language', language) }, [language, t.brand])
+  useEffect(() => { document.documentElement.lang = 'he'; document.documentElement.dir = 'rtl'; document.title = `${t.brand} · משחק לוח הכפל`; storage.remove('multiply.language') }, [language, t.brand])
   useEffect(() => { const on = () => setOnline(true); const off = () => setOnline(false); window.addEventListener('online', on); window.addEventListener('offline', off); return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) } }, [])
   useEffect(() => { const onInstall = (e: Event) => { e.preventDefault(); setInstallEvent(e as InstallEvent) }; const done = () => { setInstalled(true); setInstallEvent(null) }; window.addEventListener('beforeinstallprompt', onInstall); window.addEventListener('appinstalled', done); return () => { window.removeEventListener('beforeinstallprompt', onInstall); window.removeEventListener('appinstalled', done) } }, [])
   useEffect(() => { if (!active || game.paused || finishModal) return; const timer = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(timer) }, [active, game?.paused, finishModal])
   useEffect(() => { if (view === 'game' && !busy && !finishModal && !installModal) { answerInput.current?.focus({ preventScroll: true }); if (feedback === 'incorrect') answerInput.current?.select() } }, [view, busy, feedback, finishModal, installModal])
-  useEffect(() => () => { if (feedbackTimer.current) clearTimeout(feedbackTimer.current); void audio.current?.close() }, [])
+  useEffect(() => () => { if (feedbackTimer.current) clearTimeout(feedbackTimer.current); audio.current?.dispose(); audio.current = null }, [])
   useEffect(() => { if (!active) return; const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn) }, [active])
 
   function updateGame(next: GameState | null) {
@@ -64,27 +64,36 @@ export default function App() {
     if (err instanceof GameApiError && err.code === 'SESSION_NOT_FOUND') { updateGame(null); setView('home'); setFinishModal(false); setError('missing') }
     else setError('network')
   }
-  function playSound(row: number | null = null) {
+  function unlockAudio() {
     if (!sound) return
-    try {
-      audio.current ??= new AudioContext()
-      void audio.current.resume()
-      const notes = row ? milestones[row - 1].notes : [72, 76, 79]
-      for (const [index, note] of notes.entries()) {
-        const osc = audio.current.createOscillator(); const gain = audio.current.createGain()
-        osc.type = row ? 'triangle' : 'sine'; osc.frequency.value = 440 * 2 ** ((note - 69) / 12)
-        const start = audio.current.currentTime + index * (row ? 0.1 : 0.065)
-        gain.gain.setValueAtTime(0, start); gain.gain.linearRampToValueAtTime(row ? 0.045 : 0.06, start + 0.01); gain.gain.exponentialRampToValueAtTime(0.001, start + 0.17)
-        osc.connect(gain); gain.connect(audio.current.destination); osc.start(start); osc.stop(start + 0.18)
-        osc.onended = () => { osc.disconnect(); gain.disconnect() }
-      }
-    } catch { /* Sound is optional. */ }
+    audio.current ??= new RaceMusic()
+    audio.current.unlock()
   }
+  function toggleSound() {
+    const enabled = !sound
+    setSound(enabled); storage.set('multiply.sound', String(enabled))
+    audio.current ??= new RaceMusic()
+    audio.current.setEnabled(enabled)
+    if (enabled) audio.current.unlock()
+  }
+  function playSound(row: number | null = null) {
+    if (sound) audio.current?.celebrate(row ? milestones[row - 1].notes : [72, 76, 79])
+  }
+  useEffect(() => {
+    const sync = () => {
+      audio.current?.setEnabled(sound)
+      audio.current?.setPlaying(Boolean(sound && active && !game.paused && view === 'game' && !finishModal && !document.hidden))
+    }
+    sync()
+    document.addEventListener('visibilitychange', sync)
+    return () => document.removeEventListener('visibilitychange', sync)
+  }, [sound, active, game?.paused, view, finishModal])
   async function start() {
     if (!configured || !online) { setError('network'); return }
     const player = cleanName(name)
     if (!player) { setError('name'); document.getElementById('player-name')?.focus(); return }
     if (!lock()) return
+    unlockAudio()
     setCelebration(null); setError(null); setFeedback(null); setAnswer(''); storage.set('multiply.name', player)
     try {
       let next: GameState
@@ -100,6 +109,7 @@ export default function App() {
   }
   async function resume() {
     if (!game || !lock()) return
+    unlockAudio()
     setCelebration(null); setError(null); setAnswer(''); setFeedback(null)
     try { const next = game.mode === 'competition' ? await resumeCompetition(game.token) : { ...game, paused: false, startedAt: Date.now() - game.elapsed }; updateGame(next); setView(next.finished ? 'result' : 'game'); setFinishModal(false) } catch (err) { handleError(err) } finally { unlock() }
   }
@@ -156,8 +166,8 @@ export default function App() {
     <a className="skip-link" href="#main">{t.play}</a>
     <header className="site-header"><div className="header-inner">
       <button className="brand" onClick={() => go('home')} aria-label={t.brand}><span className="brand-mark" aria-hidden="true">×<i/></span><span><strong>{t.brand}</strong><small>{t.club}</small></span></button>
-      <nav className="main-nav" aria-label={language === 'he' ? 'ניווט ראשי' : 'Main navigation'}><button className={['home', 'game', 'result'].includes(view) ? 'selected' : ''} onClick={() => go(active ? 'game' : 'home')}><Play size={17}/>{t.play}</button><button className={view === 'board' ? 'selected' : ''} onClick={() => go('board')}><Trophy size={17}/>{t.board}</button></nav>
-      <div className="header-actions"><button className="language-button" onClick={() => setLanguage(language === 'he' ? 'en' : 'he')}><Globe2 size={17}/><span>{t.language}</span></button><button className="icon-button sound-button" aria-label={sound ? t.soundOn : t.soundOff} onClick={() => { setSound(v => !v); storage.set('multiply.sound', String(!sound)) }}>{sound ? <Volume2 size={20}/> : <VolumeX size={20}/>}</button></div>
+      <nav className="main-nav" aria-label="ניווט ראשי"><button className={['home', 'game', 'result'].includes(view) ? 'selected' : ''} onClick={() => go(active ? 'game' : 'home')}><Play size={17}/>{t.play}</button><button className={view === 'board' ? 'selected' : ''} onClick={() => go('board')}><Trophy size={17}/>{t.board}</button></nav>
+      <div className="header-actions"><button className="icon-button sound-button" aria-label={sound ? t.soundOn : t.soundOff} aria-pressed={sound} onClick={toggleSound}>{sound ? <Volume2 size={20}/> : <VolumeX size={20}/>}</button></div>
     </div></header>
     <main id="main" className={`main-content view-${view}`}>
       {!online && <div className="notice offline" role="status"><WifiOff size={19}/>{active && game.mode === 'competition' ? t.onlineLost : t.offline}</div>}
